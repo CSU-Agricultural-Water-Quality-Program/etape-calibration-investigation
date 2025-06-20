@@ -1,0 +1,267 @@
+---
+title: "eTape Calibration Investigation"
+author: "A.J. Brown"
+date: "`r Sys.Date()`"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, echo=FALSE, include=FALSE}
+# load libraries
+library(rethinking)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(plotly)
+```
+
+## Import and Clean Data
+```{r}
+setwd("C:/Users/ansle/OneDrive/Documents/GitHub/etape-calibration-investigation")
+d <- read.csv("data/etape_data.csv")
+
+# calculate water depth in centimeters
+d <- d %>%
+  mutate(water_depth_cm = water_depth_inch * 2.54)
+
+# remove "bad" data from "good/bad" column
+d <- d %>%
+  filter(good.bad == "good") %>%
+  select(-good.bad)
+
+# categorize columns as the appropriate type
+
+
+#Column Name	Description
+#year	Year of the test
+#water_depth_inch	Known water depth during calibration (in inches)
+#resistivity_ohm	Measured resistance from eTape sensor (in ohms)
+#etape_ID	Unique identifier for each physical eTape sensor
+#etape_length	Nominal length of the eTape sensor (e.g., 15 for 15-inch sensor)
+#good/bad	Quality flag for measurement ('good' or 'bad')
+#notes	Optional notes regarding conditions or sensor status
+d <- d %>%
+  mutate(
+    year = as.factor(year),
+    water_depth_inch = as.numeric(water_depth_inch),
+    water_depth_cm = as.numeric(water_depth_cm),
+    resistivity_ohm = as.numeric(resistivity_ohm),
+    etape_ID = as.factor(etape_ID),
+    etape_length = as.factor(etape_length),
+  )
+
+# prepare data for analysis in rethinking by converting to a list
+d_real <- list(
+  Y = d$year,
+  W = d$water_depth_cm,
+  R = d$resistivity_ohm,
+  L = d$etape_length,
+  I = d$etape_ID,
+  # list items with lengths
+  K_Y = length(unique(d$year)),
+  K_W = length(unique(d$water_depth_cm)),
+  K_R = length(unique(d$resistivity_ohm)),
+  K_L = length(unique(d$etape_length)),
+  K_I = length(unique(d$etape_ID))
+)
+
+# Print Summary Statistics for each etape length
+summary_stats <- d %>%
+  group_by(etape_length, water_depth_inch) %>%
+  summarise(
+    mean_resistivity = mean(resistivity_ohm, na.rm = TRUE),
+    median_resistivity = median(resistivity_ohm, na.rm = TRUE),
+    sd_resistivity = sd(resistivity_ohm, na.rm = TRUE),
+    min_resistivity = min(resistivity_ohm, na.rm = TRUE),
+    max_resistivity = max(resistivity_ohm, na.rm = TRUE),
+    count = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(etape_length, water_depth_inch)
+
+# Output summary statistics
+print(summary_stats)
+```
+
+## Simulated Dataset Generation
+```{r}
+set.seed(123)
+library(dplyr)
+
+# 1. Define true parameter values for each eTape length
+etape_lengths   <- c(12, 15, 18, 24)
+true_intercepts <- c('12' = 32, '15' = 40, '18' = 48, '24' = 61)   # ohms at 0 in
+true_slopes     <- c('12' = -0.010, '15' = -0.017, '18' = -0.02, '24' = -0.025)  # ohms per inch
+true_sds        <- c('12' = 1, '15' = 0.5, '18' = 2, '24' = 1.5)  # error SD
+
+# 2. Simulate data for each depth and etape length
+n_per_depth <- 100
+depths_inch <- 1:24
+
+sim_data <- expand.grid(
+  etape_length     = etape_lengths,
+  water_depth_inch = depths_inch,
+  replicate        = 1:n_per_depth,
+  KEEP.OUT.ATTRS   = FALSE
+)
+
+# 3. Calculate mean resistivity for each row using its etape_length and depth
+sim_data <- sim_data %>%
+  mutate(
+    water_depth_cm  = water_depth_inch * 2.54,
+    etape_length_chr = as.character(etape_length),
+    r_mu = (water_depth_cm - true_intercepts[etape_length_chr]) / true_slopes[etape_length_chr],
+    resistivity_ohm = rnorm(n(), mean = r_mu, sd = true_sds[etape_length_chr])
+  ) %>%
+  select(
+    etape_length,
+    water_depth_inch,
+    water_depth_cm,
+    resistivity_ohm
+  )
+
+# 4. Summarize just like real data (by etape_length and depth)
+summary_stats_sim <- sim_data %>%
+  group_by(etape_length, water_depth_inch) %>%
+  summarise(
+    mean_resistivity   = mean(resistivity_ohm, na.rm = TRUE),
+    median_resistivity = median(resistivity_ohm, na.rm = TRUE),
+    sd_resistivity     = sd(resistivity_ohm, na.rm = TRUE),
+    min_resistivity    = min(resistivity_ohm, na.rm = TRUE),
+    max_resistivity    = max(resistivity_ohm, na.rm = TRUE),
+    count              = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(etape_length, water_depth_inch)
+
+# 5. Print or view the simulated summary table
+print(head(summary_stats_sim, 20))  # show first 20 rows for preview
+
+# Convert etape_length to a factor and get its integer codes
+sim_data <- sim_data %>%
+  mutate(
+    etape_length_f = as.factor(etape_length),
+    L = as.integer(etape_length_f)
+  )
+
+# List of unique etape_lengths
+etape_levels <- levels(sim_data$etape_length_f)
+
+# Prepare the list for the ulam model
+d_sim <- list(
+  W      = as.numeric(sim_data$water_depth_cm),          # Observed water depth (response)
+  R      = as.numeric(sim_data$resistivity_ohm),         # Predictor (resistivity)
+  L      = as.factor(sim_data$L),                        # Etape length index
+  K_L    = length(unique(sim_data$L))                    # Number of unique etape lengths
+)
+
+```
+
+
+## Model Generation and Calibration
+```{r}
+# Fit Model with Simulated Data
+m1.0 <- ulam(
+  alist(
+    # Observation model
+    W ~ dnorm(mu, sigma_L),
+    #W ~ dnorm(mu, sigma_L[L]),
+    
+    # Mean structure: interaction between analyte and sampler type
+    mu <- alpha[L] + beta[L]*R,
+    
+    # Priors for eTape model-specific parameters
+    alpha[L] ~ dnorm(40, 3),  # Intercept for each etape length
+    beta[L] ~ dnorm(-0.02, 3),  # Slope for each etape length
+    # alpha[L] ~ dnorm(a_bar, sigma_a),
+    # beta[L] ~ dnorm(b_bar, sigma_b),
+
+    # Hyper-priors
+    # a_bar ~ dnorm(45, 3),
+    # sigma_a ~ dexp(1),
+    # b_bar ~ dnorm(-0.0017, 1),      # Typical eTape: negative slope
+    # sigma_b ~ dexp(1),
+    
+    # Prior for measurement error
+    sigma_L ~ exponential(1)
+    #vector[K_L]:sigma_L ~ exponential(1)
+  ),
+  data = d_sim,
+  chains = 4,
+  cores = 4
+)
+```
+
+
+### Model Calibration Results - Sim Data
+```{r}
+p_sim <- precis(m1.0, depth = 2)
+p_sim
+```
+
+```{r}
+trankplot(m1.0)
+```
+
+## Re-calibrate model using real data
+```{r}
+real_model <- update(m1.0, data = d_real)
+```
+
+### Model Calibration Results - Real Data
+```{r}
+p <- precis(real_model, depth = 2, digits = 5)
+p
+```
+
+```{r}
+trankplot(real_model)
+```
+
+## etape effect model
+```{r}
+# ID effects model - does individual etape matter?
+# Fit Model with Simulated Data
+effect_model <- ulam(
+  alist(
+    # Observation model
+    W ~ dnorm(mu, sigma_L),
+    #W ~ dnorm(mu, sigma_L[L]),
+    
+    # Mean structure: interaction between analyte and sampler type
+    mu <- alpha[L] + beta[L]*R + gamma[I],
+    
+    # Priors for eTape model-specific parameters
+    alpha[L] ~ dnorm(40, 3),  # Intercept for each etape length
+    beta[L] ~ dnorm(-0.02, 3),  # Slope for each etape length
+    gamma[I] ~ dnorm(0, 1),  # Individual etape effect
+    # alpha[L] ~ dnorm(a_bar, sigma_a),
+    # beta[L] ~ dnorm(b_bar, sigma_b),
+
+    # Hyper-priors
+    # a_bar ~ dnorm(45, 3),
+    # sigma_a ~ dexp(1),
+    # b_bar ~ dnorm(-0.0017, 1),      # Typical eTape: negative slope
+    # sigma_b ~ dexp(1),
+    
+    # Prior for measurement error
+    sigma_L ~ exponential(1)
+    #vector[K_L]:sigma_L ~ exponential(1)
+  ),
+  data = d_real,
+  chains = 4,
+  cores = 4
+)
+```
+
+### Effect Model Calibration Results - Real Data
+```{r}
+p_effect <- precis(effect_model, depth = 2, digits = 5)
+p_effect
+```
+
+```{r}
+trankplot(effect_model)
+```
