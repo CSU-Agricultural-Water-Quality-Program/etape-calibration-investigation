@@ -69,13 +69,6 @@ Where:
 ---
 
 **Priors:**
-
-```
-alpha_L ~ Normal(45, 5)         # Centered around typical intercepts
-beta_L  ~ Normal(-0.0017, 0.0005)  # Reflecting observed slope
-sigma_L ~ Exponential(1)
-
-```
 Priors are set based on prior knowledge of eTape sensor behavior and individual sensor calibration data. The slope and intercept values are centered around typical values observed in previous calibrations:
 
 | Sensor Length (`etape_length`) | Typical Intercept (`alpha_L`) | Typical Slope (`beta_L`) |
@@ -86,16 +79,16 @@ Priors are set based on prior knowledge of eTape sensor behavior and individual 
 | 18 inch                        | \~48                          | -0.017                  |
 | 12 inch                        | \~61                          | -0.017                  |
 
+```
+alpha_L ~ Normal(aPrior, 5)         # Centered around typical intercepts
+beta_L  ~ Normal(-0.0017, 0.0005)  # Reflecting observed slope
+sigma_L ~ Exponential(1)
+```
 
----
-
-**In Summary:**
-
-- `alpha_L`: Varying intercepts for each sensor length group, capturing estimated depth when resistance is zero
-- `beta_L`: Varying slopes for each group, representing how depth changes per unit resistance
-- `sigma_L`: Group-specific residual error to capture sensor-type-specific uncertainty
-
-This GLM structure allows for **sensor model-level calibration**, enabling shared curves across devices of the same length. If variability is low across units of the same model, a single calibration curve per type may be sufficient.
+Where:
+```
+aPrior <- c(28, 32, 40, 48, 61)  # Typical intercepts for each sensor length
+```
 
 ## Data Description
 The data for this analysis are stored in `data/etape_data.csv`. It contains calibration data for multiple eTape sensors, including their resistive outputs and corresponding water manually measured water depths. 
@@ -129,6 +122,9 @@ As documented in the official datasheet (`docs/Standard eTape Manual.pdf`), the 
 For best results, the sensor must be kept vertically straight and immersed evenly, as outlined in the datasheet.
 
 ## Results and Discussion
+
+> ![NOTE]
+> Simulated data was created and used to verify the model structure and results. The actual calibration data is used for final analysis. Simulated data is include in the code for reference, but the results presented here are based on real calibration data.
 
 Summary table of all calibrated parameters: <br/>
 
