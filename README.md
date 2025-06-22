@@ -123,7 +123,7 @@ For best results, the sensor must be kept vertically straight and immersed evenl
 
 ## Results and Discussion
 
-> ![NOTE]
+> [!NOTE]
 > Simulated data was created and used to verify the model structure and results. The actual calibration data is used for final analysis. Simulated data is include in the code for reference, but the results presented here are based on real calibration data.
 
 Summary table of all calibrated parameters: <br/>
