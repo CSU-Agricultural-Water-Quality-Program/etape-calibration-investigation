@@ -64,7 +64,9 @@ d_real <- list(
   K_W = length(unique(d$water_depth_cm)),
   K_R = length(unique(d$resistivity_ohm)),
   K_L = length(unique(d$etape_length)),
-  K_I = length(unique(d$etape_ID))
+  K_I = length(unique(d$etape_ID)),
+  # Prior for alpha (intercept) for each etape length
+  aPrior = c(28, 32, 40, 48, 61)  
 )
 
 # Print Summary Statistics for each etape length
@@ -88,13 +90,12 @@ print(summary_stats)
 ## Simulated Dataset Generation
 ```{r}
 set.seed(123)
-library(dplyr)
 
 # 1. Define true parameter values for each eTape length
-etape_lengths   <- c(12, 15, 18, 24)
-true_intercepts <- c('12' = 32, '15' = 40, '18' = 48, '24' = 61)   # ohms at 0 in
-true_slopes     <- c('12' = -0.010, '15' = -0.017, '18' = -0.02, '24' = -0.025)  # ohms per inch
-true_sds        <- c('12' = 1, '15' = 0.5, '18' = 2, '24' = 1.5)  # error SD
+etape_lengths   <- c(8, 12, 15, 18, 24)
+true_intercepts <- c("8" = 28, '12' = 37, '15' = 46, '18' = 52, '24' = 70)   # ohms at 0 in
+true_slopes     <- c("8" = -0.010, '12' = -0.014, '15' = -0.017, '18' = -0.02, '24' = -0.025)  # ohms per cm
+true_sds        <- c("8" = 1, '12' = 1, '15' = 0.5, '18' = 2, '24' = 1.5)  # error SD
 
 # 2. Simulate data for each depth and etape length
 n_per_depth <- 100
@@ -139,22 +140,23 @@ summary_stats_sim <- sim_data %>%
 # 5. Print or view the simulated summary table
 print(head(summary_stats_sim, 20))  # show first 20 rows for preview
 
-# Convert etape_length to a factor and get its integer codes
+# 6. Convert etape_length to a factor and create index
 sim_data <- sim_data %>%
   mutate(
-    etape_length_f = as.factor(etape_length),
+    etape_length_f = factor(etape_length, levels = etape_lengths),  # levels in correct order
     L = as.integer(etape_length_f)
   )
 
-# List of unique etape_lengths
-etape_levels <- levels(sim_data$etape_length_f)
+# Save the mapping for reference if needed
+etape_levels <- levels(sim_data$etape_length_f)  # c("12", "15", "18", "24")
 
 # Prepare the list for the ulam model
 d_sim <- list(
-  W      = as.numeric(sim_data$water_depth_cm),          # Observed water depth (response)
-  R      = as.numeric(sim_data$resistivity_ohm),         # Predictor (resistivity)
-  L      = as.factor(sim_data$L),                        # Etape length index
-  K_L    = length(unique(sim_data$L))                    # Number of unique etape lengths
+  W   = sim_data$water_depth_cm,   # Response: depth in cm
+  R   = sim_data$resistivity_ohm,  # Predictor: resistivity
+  L   = as.factor(sim_data$L),     # Integer index (1:4) for etape length
+  K_L = length(etape_lengths),    # Number of unique etape lengths (should be 4)
+  aPrior = c(28, 32, 40, 48, 61)  # Prior for alpha (intercept) for each etape length
 )
 
 ```
@@ -167,26 +169,17 @@ m1.0 <- ulam(
   alist(
     # Observation model
     W ~ dnorm(mu, sigma_L),
-    #W ~ dnorm(mu, sigma_L[L]),
     
     # Mean structure: interaction between analyte and sampler type
     mu <- alpha[L] + beta[L]*R,
     
     # Priors for eTape model-specific parameters
-    alpha[L] ~ dnorm(40, 3),  # Intercept for each etape length
-    beta[L] ~ dnorm(-0.02, 3),  # Slope for each etape length
-    # alpha[L] ~ dnorm(a_bar, sigma_a),
-    # beta[L] ~ dnorm(b_bar, sigma_b),
-
-    # Hyper-priors
-    # a_bar ~ dnorm(45, 3),
-    # sigma_a ~ dexp(1),
-    # b_bar ~ dnorm(-0.0017, 1),      # Typical eTape: negative slope
-    # sigma_b ~ dexp(1),
+    alpha[L] ~ normal(aPrior, 1),  # Intercept for each etape length
+    beta[L] ~ normal(-0.17, 1),  # Slope for each etape length
     
     # Prior for measurement error
     sigma_L ~ exponential(1)
-    #vector[K_L]:sigma_L ~ exponential(1)
+
   ),
   data = d_sim,
   chains = 4,
@@ -199,10 +192,11 @@ m1.0 <- ulam(
 ```{r}
 p_sim <- precis(m1.0, depth = 2)
 p_sim
+plot(p_sim)
 ```
 
 ```{r}
-trankplot(m1.0)
+traceplot(m1.0)
 ```
 
 ## Re-calibrate model using real data
@@ -214,10 +208,107 @@ real_model <- update(m1.0, data = d_real)
 ```{r}
 p <- precis(real_model, depth = 2, digits = 5)
 p
+plot(p)
 ```
 
 ```{r}
 trankplot(real_model)
+traceplot(real_model)
+```
+
+## Results 
+```{r}
+# Extract posterior samples
+#post <- extract.samples(m1.0)
+post <- extract.samples(real_model)
+
+# Use the rethinking color palette
+colset <- c("#8080FF", "#F98400", "#00A08A", "#E2AD00", "#800080", "#008000")
+etape_labels <- c("8 in", "12 in", "15 in", "18 in", "24 in")
+K_L <- length(etape_labels)
+```
+
+Alpha
+```{r}
+# Posterior densities for alpha (Intercept) by eTape length
+# Set up empty plot area
+plot(NULL, xlim = range(post$alpha), ylim = c(0, 2),
+     xlab = expression(alpha ~ "(Intercept, cm)"),
+     ylab = "Density",
+     main = "Posterior Density: alpha by eTape length")
+
+# Overlay densities for each eTape length using dens()
+for (k in 1:K_L) {
+  dens(post$alpha[, k], col = colset[k], lwd = 3, add = TRUE)
+}
+legend("topright", legend = etape_labels, col = colset, lwd = 3, bty = "n")
+
+```
+
+Beta
+```{r}
+# Posterior densities for beta (Slope) by eTape length
+# Set up empty plot area
+plot(NULL, xlim = range(post$beta), ylim = c(0, 3000),
+     xlab = expression(beta ~ "(Slope, cm/Ω)"),
+     ylab = "Density",
+     main = "Posterior Density: beta by eTape length")
+
+# Overlay densities for each eTape length using dens()
+for (k in 1:K_L) {
+  dens(post$beta[, k], col = colset[k], lwd = 3, add = TRUE)
+}
+legend("topright", legend = etape_labels, col = colset, lwd = 3, bty = "n")
+
+
+```
+
+Generative model predictions
+```{r}
+# Function to plot predictions for each eTape length at a specified resistivity
+plot_depth_predictions <- function(R_new, post, etape_lengths, colset, ...) {
+  n_etape <- length(etape_lengths)
+  n_draws <- nrow(post$alpha)
+  preds <- matrix(NA, nrow = n_draws, ncol = n_etape)
+  
+  for (i in 1:n_etape) {
+    preds[, i] <- post$alpha[, i] + post$beta[, i] * R_new +
+      rnorm(n_draws, 0, post$sigma_L)
+  }
+  
+  # Plotting
+  all_preds <- as.vector(preds)
+  x_min <- min(all_preds)
+  x_max <- max(all_preds)
+  percent_buffer <- 0.1
+  xlim <- c(x_min - percent_buffer * abs(x_min), x_max + percent_buffer * abs(x_max))
+  y_max <- max(apply(preds, 2, function(col) max(density(col)$y)))
+  ylim <- c(0, y_max * 1.1)
+  plot(NULL, xlim = xlim, ylim = ylim,
+       xlab = "Predicted Water Depth (cm)", ylab = "Density",
+       main = sprintf("Posterior Water Depth | Resistivity = %s Ω", R_new), ...)
+  for (i in 1:n_etape) {
+    dens(preds[, i], col = colset[i], lwd = 3, add = TRUE)
+  }
+  legend("topright", legend = paste(etape_lengths, "in"), col = colset, lwd = 3, bty = "n")
+  
+  # Summary Table (like precis)
+  pred_summary <- data.frame(
+    etape_length = etape_lengths,
+    mean = apply(preds, 2, mean),
+    sd   = apply(preds, 2, sd),
+    `2.5%`  = apply(preds, 2, quantile, probs = 0.025),
+    `97.5%` = apply(preds, 2, quantile, probs = 0.975)
+  )
+  
+  print(pred_summary, row.names = FALSE)
+  invisible(pred_summary) # Returns the summary silently for further use
+}
+
+```
+
+```{r}
+plot_depth_predictions(R_new = 500, post = post, etape_lengths = etape_lengths, colset = colset)
 ```
 
 ## etape effect model
@@ -234,8 +325,8 @@ effect_model <- ulam(
     mu <- alpha[L] + beta[L]*R + gamma[I],
     
     # Priors for eTape model-specific parameters
-    alpha[L] ~ dnorm(40, 3),  # Intercept for each etape length
-    beta[L] ~ dnorm(-0.02, 3),  # Slope for each etape length
+    alpha[L] ~ dnorm(aPrior, 1),  # Intercept for each etape length
+    beta[L] ~ dnorm(-0.17, 1),  # Slope for each etape length
     gamma[I] ~ dnorm(0, 1),  # Individual etape effect
     # alpha[L] ~ dnorm(a_bar, sigma_a),
     # beta[L] ~ dnorm(b_bar, sigma_b),
@@ -260,8 +351,23 @@ effect_model <- ulam(
 ```{r}
 p_effect <- precis(effect_model, depth = 2, digits = 5)
 p_effect
+plot(p_effect)
 ```
 
 ```{r}
 trankplot(effect_model)
 ```
+
+
+## Frequentist Approach Results
+```{r}
+# Fit the model with interaction (intercept and slope by eTape length)
+lm_fit <- lm(water_depth_cm ~ resistivity_ohm * etape_length, data = d)
+# This is equivalent to: water_depth_cm ~ resistivity_ohm + etape_length + resistivity_ohm:etape_length
+
+# View the summary
+summary(lm_fit)
+# confidence intervals for the coefficients
+confint(lm_fit)
+```
+

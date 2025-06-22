@@ -18,7 +18,7 @@ The goal is to reduce calibration burden while maintaining measurement accuracy�
 etape-calibration-investigation/
 │
 ├── code/
-│   └── etape-analysis.r           # Main Bayesian modeling and analysis script
+│   └── etape-analysis.r          # Main Bayesian modeling and analysis script
 │
 ├── data/
 │   ├── etape_data.csv            # Main calibration dataset
@@ -80,14 +80,16 @@ Priors are set based on prior knowledge of eTape sensor behavior and individual 
 
 | Sensor Length (`etape_length`) | Typical Intercept (`alpha_L`) | Typical Slope (`beta_L`) |
 | ------------------------------ | ----------------------------- | ------------------------ |
-| 12 inch                        | \~38                          | -0.017                  |
-| 15 inch                        | \~46                          | -0.017                  |
-| 18 inch                        | \~53                          | -0.017                  |
+| 08 inch                        | \~28                          | -0.017                  |
+| 12 inch                        | \~32                          | -0.017                  |
+| 15 inch                        | \~40                          | -0.017                  |
+| 18 inch                        | \~48                          | -0.017                  |
+| 12 inch                        | \~61                          | -0.017                  |
 
 
 ---
 
-#### Summary
+**In Summary:**
 
 - `alpha_L`: Varying intercepts for each sensor length group, capturing estimated depth when resistance is zero
 - `beta_L`: Varying slopes for each group, representing how depth changes per unit resistance
@@ -102,11 +104,11 @@ The file `data/etape_data.csv` contains raw calibration data for multiple eTape 
 
 | Column Name         | Description                                                             |
 |---------------------|-------------------------------------------------------------------------|
-| `year`              | Year of the test                                                         |
+| `year`              | Year of the test                                                        |
 | `water_depth_inch`  | Known water depth during calibration (in inches)                        |
 | `resistivity_ohm`   | Measured resistance from eTape sensor (in ohms)                         |
 | `etape_ID`          | Unique identifier for each physical eTape sensor                        |
-| `etape_length`      | Nominal length of the eTape sensor (e.g., 15 for 15-inch sensor)         |
+| `etape_length`      | Nominal length of the eTape sensor (e.g., 15 for 15-inch sensor)        |
 | `good/bad`          | Quality flag for measurement ('good' or 'bad')                          |
 | `notes`             | Optional notes regarding conditions or sensor status                    |
 
@@ -122,7 +124,48 @@ As documented in the official datasheet (`docs/Standard eTape Manual.pdf`), the 
   - 8" sensor: 400–1500 Ω ±20%
   - 12" sensor: 400–2000 Ω ±20%
   - 15" sensor: ~400–2500 Ω (field-observed)
-  - Resistance gradient: ~150 Ω/inch
+  - Resistance gradient: ~150 Ω/inch or 59.06 Ω/cm
 
 For best results, the sensor must be kept vertically straight and immersed evenly, as outlined in the datasheet.
 
+## Results and Discussion
+
+Summary table of all calibrated parameters: <br/>
+
+**Index number key:** <br/>
+
+| 1 = 8 inch | 2 = 12 inch | 3 = 15 inch | 4 = 18 inch | 5 = 24 inch |
+|-----------|--------|-------|-------|-------|
+
+| Parameter | Mean   | SD    | 5.5%  | 94.5% | Histogram                  |
+|-----------|--------|-------|-------|-------|----------------------------|
+| alpha[1]  | 28.04  | 0.91  | 26.59 | 29.51 | ▁▁▁▂▅▇▇▅▃▁▁▁▁           |
+| alpha[2]  | 35.98  | 0.27  | 35.55 | 36.42 | ▁▁▂▃▇▇▃▁▁▁              |
+| alpha[3]  | 46.54  | 0.37  | 45.95 | 47.13 | ▁▁▂▃▇▇▇▅▂▁▁▁            |
+| alpha[4]  | 52.06  | 0.29  | 51.62 | 52.52 | ▁▁▁▃▇▇▅▂▁▁▁             |
+| alpha[5]  | 65.97  | 0.62  | 64.99 | 66.94 | ▁▁▁▃▇▇▃▁▁              |
+| beta[1]   | -0.017 | 0.00  | -0.02 | -0.02 | ▁▁▃▇▇▂▁▁               |
+| beta[2]   | -0.016 | 0.00  | -0.02 | -0.02 | ▁▁▁▁▂▃▅▇▇▅▃▂▁▁▁        |
+| beta[3]   | -0.017 | 0.00  | -0.02 | -0.02 | ▁▁▁▂▃▇▇▇▅▃▂▁▁▁         |
+| beta[4]   | -0.017 | 0.00  | -0.02 | -0.02 | ▁▁▁▂▅▇▇▃▂▁▁▁           |
+| beta[5]   | -0.016 | 0.00  | -0.02 | -0.02 | ▁▁▂▃▇▇▃▁▁▁▁            |
+| sigma_L   | 2.38   | 0.05  | 2.30  | 2.46  | ▁▁▃▇▅▁▁▁               |
+
+
+### Intercept results: <br/>
+[![Intercepts by Sensor Length](figs/intercept_results_real.png)](figs/intercept_results_real.png)
+
+### Slope results: <br/>
+[![Slopes by Sensor Length](figs/slope_results_real.png)](figs/slope_results_real.png)
+
+### Posterior Predictive Check: <br/>
+[![Posterior Predictive Check](figs/500ohm_pred.png)](figs/500ohm_pred.png)
+
+Summary table of posterior predictive check at 500 ohms:
+| etape length (in) |   Mean (cm)   |   SD    |  2.5%   | 97.5%   |
+|--------------|----------|---------|---------|---------|
+|      8       | 19.42    | 2.49    | 14.79   | 24.42   |
+|     12       | 28.00    | 2.43    | 23.22   | 32.68   |
+|     15       | 38.19    | 2.38    | 33.62   | 42.88   |
+|     18       | 43.66    | 2.44    | 38.94   | 48.51   |
+|     24       | 58.08    | 2.40    | 53.49   | 62.69   |
