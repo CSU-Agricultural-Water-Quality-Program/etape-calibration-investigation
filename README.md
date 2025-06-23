@@ -10,6 +10,12 @@ This repository investigates the calibration consistency of Milone eTape sensors
 
 The goal is to reduce calibration burden while maintaining measurement accuracy—especially important for scale-up in field deployments.
 
+Key Findings:
+- Calibration curves vary by sensor length, not by individual sensor
+- A generalized model for each sensor length type can be used, rather than individual calibrations
+- This approach simplifies future deployments and reduces calibration time
+- Future work could focus on developing a reference resistance value for when the device is out of water, further simplifying the calibration process
+
 ---
 
 ## Repository Structure
@@ -36,10 +42,12 @@ etape-calibration-investigation/
 ```
 
 ## Methodology
-Starting in 2023, the CSU Agricultural Water Quality Program has been calibrating eTape sensors using a standardized protocol. The calibration involves measuring the resistance of the sensor at known water depths (i.e., from 1 inch to the max depth of the individual eTape), which are manually recorded, then regressed to derive a linear relationship between resistance and water depth for each eTape sensor.
+Starting in 2023, the CSU Agricultural Water Quality Program has been calibrating eTape sensors using a standardized protocol. The calibration involves measuring the resistance of the sensor at known water depths (i.e., from 1 inch to the max depth of the individual eTape), which are manually recorded, then regressed to derive a linear relationship between resistance and water depth for each eTape sensor:
 
-This project will utilize a generalized linear model (GLM) framework to analyze the calibration data. The model will include:
-- **Response Variable**: Water depth (in inches)
+$$ Water Depth = \alpha + \beta \cdot \text{Resistivity} $$
+
+This project will utilize a generalized linear model (GLM) framework to analyze the all calibration data simultanously. The model will include:
+- **Response Variable**: Water depth (in cm)
 - **Predictor Variable**: Sensor resistivity (in ohms)
 - **Group Variable**: eTape model (to account for differing response characteristics across sensor types)
 
@@ -47,7 +55,7 @@ This project will utilize a generalized linear model (GLM) framework to analyze 
 
 #### Generalized Linear Model
 
-We use a **Bayesian generalized linear model (GLM)** to relate water depth (`water_depth_inch`) to the measured resistance (`resistivity_ohm`) from Milone eTape sensors. The slope, intercept, and residual variance are allowed to vary by `etape_length` (e.g., 8", 12", 15"), which corresponds to the model of the sensor used.
+We use a **Bayesian generalized linear model (GLM)** to relate water depth (`water_depth_inch`) to the measured resistance (`resistivity_ohm`) from Milone eTape sensors. The slope, intercept, and residual variance are allowed to vary by `etape_length` (e.g., 8", 12", 15"), which corresponds to the model of the sensor used. The model was fit using the [`rethinking` package in R](https://github.com/rmcelreath/rethinking).
 
 ---
 
@@ -121,10 +129,12 @@ As documented in the official datasheet (`docs/Standard eTape Manual.pdf`), the 
 
 For best results, the sensor must be kept vertically straight and immersed evenly, as outlined in the datasheet.
 
-## Results and Discussion
+## Results
 
 > [!NOTE]
 > Simulated data was created and used to verify the model structure and results. The actual calibration data is used for final analysis. Simulated data is include in the code for reference, but the results presented here are based on real calibration data.
+
+Below are the results of the Bayesian analysis, including posterior distributions for the intercepts (alpha) and slopes (beta) of the calibration curves for each eTape sensor length.
 
 Summary table of all calibrated parameters: <br/>
 
@@ -148,20 +158,36 @@ Summary table of all calibrated parameters: <br/>
 | sigma_L   | 2.38   | 0.05  | 2.30  | 2.46  | ▁▁▃▇▅▁▁▁               |
 
 
-### Intercept results: <br/>
+### Figure 1: Intercept results: <br/>
 [![Intercepts by Sensor Length](figs/intercept_results_real.png)](figs/intercept_results_real.png)
 
-### Slope results: <br/>
+### Figure 2: Slope results: <br/>
 [![Slopes by Sensor Length](figs/slope_results_real.png)](figs/slope_results_real.png)
 
-### Posterior Predictive Check: <br/>
+### Figure 3: Using the generative model to predict depth at a resistance of 500 ohms: <br/>
 [![Posterior Predictive Check](figs/500ohm_pred.png)](figs/500ohm_pred.png)
 
-Summary table of posterior predictive check at 500 ohms:
-| etape length (in) |   Mean (cm)   |   SD    |  2.5%   | 97.5%   |
+Summary table of posterior predictive results at 500 ohms:
+| eTape length (in) |   Mean (cm)   |   SD    |  2.5%   | 97.5%   |
 |--------------|----------|---------|---------|---------|
 |      8       | 19.42    | 2.49    | 14.79   | 24.42   |
 |     12       | 28.00    | 2.43    | 23.22   | 32.68   |
 |     15       | 38.19    | 2.38    | 33.62   | 42.88   |
 |     18       | 43.66    | 2.44    | 38.94   | 48.51   |
 |     24       | 58.08    | 2.40    | 53.49   | 62.69   |
+
+## Conclusion
+Results indicate that linear model parameters (slope and intercept) vary by eTape sensor length, but the parameter differences are not substantial between individual etape units. This suggests a a set of generalized calibration parameters could be used for each sensor length type, rather than individual calibrations for each unit, saving time and effort in future deployments.
+
+Below is the summary table containing the average slope and intercept values for each eTape sensor length, which can be used for future calibrations:
+
+| eTape Length (inches) | Intercept (α) | Slope (β)       |
+|-----------------------|---------------|-----------------|
+| 8                     | 28.0378353    | -0.01726096     |
+| 12                    | 35.9807504    | -0.01590957     |
+| 15                    | 46.540297     | -0.01682064     |
+| 18                    | 52.0602068    | -0.01690116     |
+| 24                    | 65.97030975   | -0.01560485     |
+
+## Future Work
+Due to the similarity of the slope parameters across sensor lengths, future work could focus on developing a reference resitance value for when the device is out of water. Subtracting this reference value from the raw resistance reading could simplify the calibration process further by eliminating the need for an intercept term in the model. This would allow for a single slope value to be applied across all sensor lengths, further streamlining the calibration process. However, this approach would require that the etape firmware be modified to allow the user to set the reference resistance value and store it for future readings.
