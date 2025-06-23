@@ -14,7 +14,6 @@ library(rethinking)
 library(dplyr)
 library(tidyr)
 library(tidyverse)
-library(plotly)
 ```
 
 ## Import and Clean Data
@@ -272,8 +271,7 @@ plot_depth_predictions <- function(R_new, post, etape_lengths, colset, ...) {
   preds <- matrix(NA, nrow = n_draws, ncol = n_etape)
   
   for (i in 1:n_etape) {
-    preds[, i] <- post$alpha[, i] + post$beta[, i] * R_new +
-      rnorm(n_draws, 0, post$sigma_L)
+    preds[, i] <- post$alpha[, i] + post$beta[, i] * R_new
   }
   
   # Plotting

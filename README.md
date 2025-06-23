@@ -168,13 +168,14 @@ Summary table of all calibrated parameters: <br/>
 [![Posterior Predictive Check](figs/500ohm_pred.png)](figs/500ohm_pred.png)
 
 Summary table of posterior predictive results at 500 ohms:
-| eTape length (in) |   Mean (cm)   |   SD    |  2.5%   | 97.5%   |
-|--------------|----------|---------|---------|---------|
-|      8       | 19.42    | 2.49    | 14.79   | 24.42   |
-|     12       | 28.00    | 2.43    | 23.22   | 32.68   |
-|     15       | 38.19    | 2.38    | 33.62   | 42.88   |
-|     18       | 43.66    | 2.44    | 38.94   | 48.51   |
-|     24       | 58.08    | 2.40    | 53.49   | 62.69   |
+| eTape Length | Mean     | SD        | 2.5%     | 97.5%    |
+|--------------|----------|-----------|----------|----------|
+| 8            | 19.37050 | 0.6432015 | 18.09380 | 20.61520 |
+| 12           | 28.02889 | 0.1815699 | 27.65329 | 28.38674 |
+| 15           | 38.11105 | 0.2739453 | 37.58863 | 38.63055 |
+| 18           | 43.60274 | 0.2165759 | 43.18235 | 44.00805 |
+| 24           | 58.15743 | 0.5262453 | 57.10703 | 59.21239 |
+
 
 ## Conclusion
 Results indicate that linear model parameters (slope and intercept) vary by eTape sensor length, but the parameter differences are not substantial between individual etape units. This suggests a a set of generalized calibration parameters could be used for each sensor length type, rather than individual calibrations for each unit, saving time and effort in future deployments.
