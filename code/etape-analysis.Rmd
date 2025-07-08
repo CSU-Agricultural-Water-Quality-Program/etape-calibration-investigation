@@ -19,7 +19,8 @@ library(tidyverse)
 ## Import and Clean Data
 ```{r}
 setwd("C:/Users/ansle/OneDrive/Documents/GitHub/etape-calibration-investigation")
-d <- read.csv("data/etape_data.csv")
+#d <- read.csv("data/etape_data.csv")
+d <- read.csv("data/etape_data_plus_etape_study.csv")
 
 # calculate water depth in centimeters
 d <- d %>%
@@ -357,6 +358,7 @@ trankplot(effect_model)
 ```
 
 
+
 ## Frequentist Approach Results
 ```{r}
 # Fit the model with interaction (intercept and slope by eTape length)
@@ -367,5 +369,293 @@ lm_fit <- lm(water_depth_cm ~ resistivity_ohm * etape_length, data = d)
 summary(lm_fit)
 # confidence intervals for the coefficients
 confint(lm_fit)
+```
+
+# Single eTape study
+To help verify if the Bayesian coefficients are sufficiently accurate for practical use, a sub-study was performed where 4 student employees calibrated the same, 18-inch eTape. These new data will be used to create a linear model without considering the person effects.  If the uncertainty between the bayesian analysis over all etapes is similar to the uncertainty in the single eTape study, then it would suggest that the Bayesian model coefficients are accurate enough for practical use because they could not be statistically differentiated from the single eTape study.
+
+```{r}
+# Load the single eTape study data
+single_etape_data <- read.csv("../data/single_etape_study.csv")
+
+# clean data like previously
+single_etape_data <- single_etape_data %>%
+  mutate(
+    water_depth_cm = water_depth_inch * 2.54,
+    resistivity_ohm = as.numeric(resistivity_ohm),
+    etape_ID = as.factor(etape_ID)
+  )
+
+# make data into list for ulam
+d_single_etape <- list(
+  W = single_etape_data$water_depth_cm,
+  R = single_etape_data$resistivity_ohm,
+  L = as.factor(single_etape_data$etape_ID),
+  K_L = length(unique(single_etape_data$etape_ID)),
+  aPrior = c(28, 32, 40, 48, 61)  # Prior for alpha (intercept) for each etape length
+)
+
+```
+
+## Frequentist approach (a quick look)
+```{r}
+# fit a linear model to the single eTape study data
+single_etape_lm <- lm(water_depth_cm ~ resistivity_ohm, data = single_etape_data)
+
+# View the summary of the linear model
+summary(single_etape_lm)
+
+# confidence intervals for the coefficients
+confint(single_etape_lm)
+```
+
+## Bayesian approach
+
+```{r}
+# Fit Model with Simulated Data
+m2.0 <- ulam(
+  alist(
+    # Observation model
+    W ~ dnorm(mu, sigma),
+    
+    # Mean structure: interaction between analyte and sampler type
+    mu <- alpha + beta*R,
+    
+    # Priors for eTape model-specific parameters
+    alpha ~ normal(50, 1),  # Intercept for each etape length
+    beta ~ normal(-0.17, 1),  # Slope for each etape length
+    
+    # Prior for measurement error
+    sigma ~ exponential(1)
+
+  ),
+  data = d_single_etape,
+  chains = 4,
+  cores = 4
+)
+```
+
+### Single eTape Study Calibration Results
+```{r}
+#trankplot(m2.0)
+#traceplot(m2.0)
+single.effect <- precis(m2.0, depth = 2, digits = 5)
+print(single.effect)
+plot(single.effect)
+```
+
+```{r}
+# compare precis output from real_model to m2.0
+
+# compare at 95% confidence
+p95 <- precis(real_model, prob = 0.95, depth = 2)
+single.effect95 <- precis(m2.0, prob = 0.95, depth = 2)
+
+comp_table <- data.frame(
+  Parameter = rep(c("alpha", "beta"), each = 2),
+  Model = c("All eTapes", "Single eTape", "All eTapes", "Single eTape"),
+  Mean = c(
+    p95$mean[4], single.effect95$mean[1],
+    p95$mean[9], single.effect95$mean[2]
+  ),
+  lower = c(
+    p95$`2.5%`[4], single.effect95$`2.5%`[1],
+    p95$`2.5%`[9], single.effect95$`2.5%`[2]
+  ),
+  upper = c(
+    p95$`97.5%`[4], single.effect95$`97.5%`[1],
+    p95$`97.5%`[9], single.effect95$`97.5%`[2]
+  )
+)
+
+print(comp_table)
+
+alpha_table <- subset(comp_table, Parameter == "alpha")
+beta_table  <- subset(comp_table, Parameter == "beta")
+alpha_table$y <- 2:1
+beta_table$y  <- 2:1
+
+par(mar = c(5, 7, 4, 2) + 0.1)  # more space on the left
+
+plot(
+  x = alpha_table$Mean,
+  y = alpha_table$y,
+  xlim = range(c(alpha_table$lower, alpha_table$upper)),
+  ylim = c(0.5, 2.5),
+  xlab = "Alpha Estimate (mean and 95% CI)", ylab = "",
+  yaxt = "n", pch = 16, cex = 1.5,
+  main = "Comparison of alpha (intercept) Credible Intervals"
+)
+segments(
+  x0 = alpha_table$lower,
+  y0 = alpha_table$y,
+  x1 = alpha_table$upper,
+  y1 = alpha_table$y,
+  lwd = 2
+)
+points(alpha_table$Mean, alpha_table$y, pch = 16, cex = 1.5)
+axis(2, at = alpha_table$y, labels = alpha_table$Model, las = 1)
+abline(h = alpha_table$y, col = "gray90", lty = 2)
+
+plot(
+  x = beta_table$Mean,
+  y = beta_table$y,
+  xlim = range(c(beta_table$lower, beta_table$upper)),
+  ylim = c(0.5, 2.5),
+  xlab = "Beta Estimate (mean and 95% CI)", ylab = "",
+  yaxt = "n", pch = 16, cex = 1.5,
+  main = "Comparison of beta (slope) Credible Intervals"
+)
+segments(
+  x0 = beta_table$lower,
+  y0 = beta_table$y,
+  x1 = beta_table$upper,
+  y1 = beta_table$y,
+  lwd = 2
+)
+points(beta_table$Mean, beta_table$y, pch = 16, cex = 1.5)
+axis(2, at = beta_table$y, labels = beta_table$Model, las = 1)
+abline(h = beta_table$y, col = "gray90", lty = 2)
+
+
+```
+
+### compare results using generative model predictions
+```{r}
+
+# For real_model: extract alpha[4], beta[4]
+alpha_real <- post$alpha[,4]
+beta_real  <- post$beta[,4]
+
+# For m2.0: extract alpha, beta (no index needed)
+post_single <- extract.samples(m2.0)
+alpha_single <- post_single$alpha
+beta_single  <- post_single$beta
+
+```
+
+```{r}
+compare_prediction_distributions <- function(
+  R_new,
+  post_real,   # extract.samples(real_model)
+  post_single, # extract.samples(m2.0)
+  etape_index_real = 4, # which alpha/beta in real_model to use,
+  real_cm, # cm value for the vertical line
+  col_real   = "#8080FF",
+  col_single = "#F98400"
+) {
+  # Compute predictions
+  preds_real   <- post_real$alpha[, etape_index_real] + post_real$beta[, etape_index_real] * R_new
+  preds_single <- post_single$alpha + post_single$beta * R_new
+  
+  # Density objects
+  dens_real   <- density(preds_real)
+  dens_single <- density(preds_single)
+  
+  # Set up plot limits
+  all_preds <- c(preds_real, preds_single)
+  xlim <- range(all_preds)
+  ylim <- c(0, max(dens_real$y, dens_single$y) * 1.1)
+  
+  # Plot
+  plot(
+    dens_real, type = "l", lwd = 3, col = col_real,
+    xlim = xlim, ylim = ylim,
+    xlab = "Predicted Water Depth (cm)",
+    ylab = "Density",
+    main = sprintf("Posterior Water Depth Distributions\nResistivity = %s Ω\n(True value as Gray Line)", R_new)
+  )
+  lines(dens_single, lwd = 3, col = col_single, lty = 1)
+  
+  abline(v = real_cm, col = "gray", lty = 2, lwd = 3)  # vertical line at 0 for reference
+  
+  legend(
+    "topright",
+    legend = c("All eTapes", "Single eTape"),
+    col = c(col_real, col_single),
+    lwd = 3, lty = c(1, 1), bty = "n"
+  )
+  
+  # Print summary table
+  pred_summary <- data.frame(
+    Model = c("All eTapes", "Single eTape"),
+    mean = c(mean(preds_real), mean(preds_single)),
+    sd   = c(sd(preds_real), sd(preds_single)),
+    `2.5%` = c(quantile(preds_real, 0.025), quantile(preds_single, 0.025)),
+    `97.5%` = c(quantile(preds_real, 0.975), quantile(preds_single, 0.975))
+  )
+  print(pred_summary, row.names = FALSE)
+  invisible(pred_summary)
+}
+
+```
+
+
+```{r}
+compare_prediction_distributions(
+  R_new = 1118,              # any resistivity value you want
+  post_real = post,
+  post_single = post_single,
+  etape_index_real = 4,      # change if you want a different eTape group
+  real_cm = 33.02            # cm value for the vertical line
+)
+```
+
+
+```{r}
+# Generate linear regression line plot
+plot_both_regressions <- function(R_seq, post_real, post_single, etape_index_real = 4) {
+  pred_mat_real <- sapply(R_seq, function(R) post_real$alpha[,etape_index_real] + post_real$beta[,etape_index_real] * R)
+  pred_mean_real  <- apply(pred_mat_real, 2, mean)
+  pred_lower_real <- apply(pred_mat_real, 2, quantile, 0.025)
+  pred_upper_real <- apply(pred_mat_real, 2, quantile, 0.975)
+  
+  pred_mat_single <- sapply(R_seq, function(R) post_single$alpha + post_single$beta * R)
+  pred_mean_single  <- apply(pred_mat_single, 2, mean)
+  pred_lower_single <- apply(pred_mat_single, 2, quantile, 0.025)
+  pred_upper_single <- apply(pred_mat_single, 2, quantile, 0.975)
+  
+  plot(
+    R_seq, pred_mean_real, type = "l",
+    col = "#8080FF", lwd = 2,
+    ylim = range(c(pred_lower_real, pred_upper_real, pred_lower_single, pred_upper_single)),
+    xlab = "Resistivity (Ω)",
+    ylab = "Predicted Water Depth (cm)",
+    main = "Regression with Posterior Uncertainty\nAll eTapes vs Single eTape"
+  )
+  polygon(
+    c(R_seq, rev(R_seq)),
+    c(pred_upper_real, rev(pred_lower_real)),
+    col = adjustcolor("#8080FF", alpha.f = 0.2), border = NA
+  )
+  lines(R_seq, pred_mean_single, col = "#F98400", lwd = 2, lty = 2)
+  polygon(
+    c(R_seq, rev(R_seq)),
+    c(pred_upper_single, rev(pred_lower_single)),
+    col = adjustcolor("#F98400", alpha.f = 0.2), border = NA
+  )
+  lines(R_seq, pred_mean_real, col = "#8080FF", lwd = 2)
+  lines(R_seq, pred_mean_single, col = "#F98400", lwd = 2, lty = 2)
+  legend("topright",
+         legend = c("All eTapes", "Single eTape"),
+         col = c("#8080FF", "#F98400"),
+         lwd = 2,
+         lty = c(1,2),
+         bty = "n",
+         fill = adjustcolor(c("#8080FF", "#F98400"), alpha.f = 0.2)
+  )
+  range(pred_upper_real - pred_lower_real)
+  range(pred_upper_single - pred_lower_single)
+}
+
+
+
+
+```
+
+```{r}
+R_seq <- seq(500, 2900, by = 100)
+plot_both_regressions(R_seq, post, post_single)
+
 ```
 
